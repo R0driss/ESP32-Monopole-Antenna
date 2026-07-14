@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Análise de Propagação RF - Antena Dipolo</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        background-color: #f4f4f9;
+      }
+      .container {
+        width: 95%;
+        margin: 0 auto;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Análise de Espectro 2.4 GHz (Tempo Real)</h1>
+      <canvas id="graficoRssi" width="800" height="400"></canvas>
+    </div>
+
+    <script>
+      const ctx = document.getElementById("graficoRssi").getContext("2d");
+      const maxPontos = 20; // Quantidade de leituras que ficam no histórico da tela
+
+      const grafico = new Chart(ctx, {
+        type: "line",
+        data: { labels: [], datasets: [] },
+        options: {
+          animation: { duration: 0 }, // Desativa animação para fluidez no tempo real
+          scales: {
+            y: {
+              suggestedMax: -30,
+              suggestedMin: -100,
+              title: { display: true, text: "Intensidade do Sinal RSSI (dBm)" },
+            },
+            x: { title: { display: true, text: "Horário da Leitura" } },
+          },
+          elements: { point: { radius: 4, hitRadius: 10 } },
+          plugins: { legend: { position: "right" } },
+        },
+      });
+
+      // Gera uma cor fixa baseada no nome da rede para a linha não ficar mudando de cor
+      function gerarCor(string) {
+        let hash = 0;
+        for (let i = 0; i < string.length; i++) {
+          hash = string.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        let cor = "#";
+        for (let i = 0; i < 3; i++) {
+          let valor = (hash >> (i * 8)) & 0xff;
+          cor += ("00" + valor.toString(16)).substr(-2);
+        }
+        return cor;
+      }
+
+      async function atualizarDados() {
+        try {
+          const response = await fetch("/dados");
+          const redes = await response.json();
+
+          if (redes.length > 0) {
+            const agora = new Date().toLocaleTimeString();
+
+            // Adiciona o novo horário no eixo X
+            grafico.data.labels.push(agora);
+            if (grafico.data.labels.length > maxPontos)
+              grafico.data.labels.shift();
+
+            // Atualiza ou cria as linhas para cada rede
+            redes.forEach((rede) => {
+              let dataset = grafico.data.datasets.find(
+                (ds) => ds.label === rede.ssid,
+              );
+
+              // Se a rede apareceu pela primeira vez, cria uma linha para ela
+              if (!dataset) {
+                dataset = {
+                  label: rede.ssid,
+                  data: new Array(grafico.data.labels.length - 1).fill(null),
+                  borderColor: gerarCor(rede.ssid),
+                  backgroundColor: gerarCor(rede.ssid),
+                  fill: false,
+                  tension: 0.3,
+                  borderWidth: 2,
+                };
+                grafico.data.datasets.push(dataset);
+              }
+              dataset.data.push(rede.rssi);
+            });
+
+            // Se alguma rede sumiu do radar neste ciclo, preenche com espaço vazio
+            grafico.data.datasets.forEach((ds) => {
+              if (!redes.find((r) => r.ssid === ds.label)) {
+                ds.data.push(null);
+              }
+              // Remove dados antigos para o gráfico andar para o lado
+              if (ds.data.length > maxPontos) ds.data.shift();
+            });
+
+            grafico.update();
+          }
+        } catch (error) {
+          console.error("Erro na leitura", error);
+        }
+      }
+
+      setInterval(atualizarDados, 10000);
+      atualizarDados();
+    </script>
+  </body>
+</html>
